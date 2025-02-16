@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  Application:
+    Default: phasic
+    Type: String
+
+Outputs:
+  StackRole:
+    Value: !GetAtt StackRole.Arn
+  SubnetA:
+    Export:
+      Name: !Join [':', [!Ref Application, SubnetA]]
+    Value: !Ref SubnetA
+  SubnetB:
+    Export:
+      Name: !Join [':', [!Ref Application, SubnetB]]
+    Value: !Ref SubnetB
+  SubnetC:
+    Export:
+      Name: !Join [':', [!Ref Application, SubnetC]]
+    Value: !Ref SubnetC
+  Vpc:
+    Export:
+      Name: !Join [':', [!Ref Application, Vpc]]
+    Value: !Ref Vpc
+
+Resources:
+
+  StackRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+      Policies:
+        - PolicyName: Bucket
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:PutBucketTagging
+                  - s3:PutLifecycleConfiguration
+                Effect: Allow
+                Resource: '*'
+        - PolicyName: Domain
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - iam:CreateServiceLinkedRole
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/sagemaker.amazonaws.com/AWSServiceRoleForAmazonSageMakerNotebooks
+              - Action:
+                  - iam:GetRole
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/application: !Ref Application
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/*
+              - Action:
+                  - iam:PassRole
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/*
+              - Action:
+                  - sagemaker:AddTags
+                  - sagemaker:CreateDomain
+                  - sagemaker:DescribeDomain
+                Effect: Allow
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:domain/*
+              - Action:
+                  - sagemaker:DeleteDomain
+                  - sagemaker:DeleteTags
+                  - sagemaker:ListTags
+                  - sagemaker:UpdateDomain
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/application: !Ref Application
+                Effect: Allow
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:domain/*
+        - PolicyName: Role
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - iam:CreateRole
+                  - iam:TagRole
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/*
+              - Action:
+                  - iam:DeleteRole
+                  - iam:ListRoleTags
+                  - iam:UntagRole
+                  - iam:UpdateRole
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/application: !Ref Application
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/*
+        - PolicyName: RolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:PutRolePolicy
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/application: !Ref Application
+                Effect: Allow
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/*
+        - PolicyName: Space
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - sagemaker:AddTags
+                  - sagemaker:CreateSpace
+                  - sagemaker:DescribeSpace
+                Effect: Allow
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:space/*/*
+              - Action:
+                  - sagemaker:DeleteSpace
+                  - sagemaker:ListTags
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/application: !Ref Application
+                Effect: Allow
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:space/*/*
+        - PolicyName: UserProfile
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - sagemaker:AddTags
+                  - sagemaker:CreateUserProfile
+                  - sagemaker:DeleteUserProfile
+                  - sagemaker:DescribeUserProfile
+                Effect: Allow
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:user-profile/*/*
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${AWS::Region}a
+      CidrBlock: 192.168.0.0/24
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${AWS::Region}b
+      CidrBlock: 192.168.1.0/24
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  SubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${AWS::Region}c
+      CidrBlock: 192.168.2.0/24
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName

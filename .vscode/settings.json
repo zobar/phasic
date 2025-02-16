@@ -1,0 +1,8 @@
+{
+    "yaml.schemas": {
+        "https://raw.githubusercontent.com/awslabs/goformation/master/schema/cloudformation.schema.json": [
+            "file:///workspaces/phasic/cloudformation/bootstrap.yaml",
+            "file:///workspaces/phasic/cloudformation/team.yaml"
+        ]
+    }
+}

@@ -1,0 +1,189 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  Application:
+    Default: phasic
+    Type: String
+  UserProfileName:
+    Type: String
+
+Resources:
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 0
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  CodeEditorSpace:
+    Type: AWS::SageMaker::Space
+    DependsOn:
+      - UserProfile
+    Properties:
+      DomainId: !Ref Domain
+      OwnershipSettings:
+        OwnerUserProfileName: !Ref UserProfileName
+      SpaceName: !Sub ${UserProfileName}-code-editor
+      SpaceSettings:
+        AppType: CodeEditor
+      SpaceSharingSettings:
+        SharingType: Private
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  DefaultUserExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  Domain:
+    Type: AWS::SageMaker::Domain
+    Properties:
+      AuthMode: IAM
+      DefaultUserSettings:
+        CodeEditorAppSettings:
+          AppLifecycleManagement:
+            IdleSettings:
+              IdleTimeoutInMinutes: 60
+              LifecycleManagement: ENABLED
+          DefaultResourceSpec:
+            InstanceType: ml.g4dn.xlarge
+        ExecutionRole: !GetAtt DefaultUserExecutionRole.Arn
+        JupyterLabAppSettings:
+          AppLifecycleManagement:
+            IdleSettings:
+              IdleTimeoutInMinutes: 60
+              LifecycleManagement: ENABLED
+          DefaultResourceSpec:
+            InstanceType: ml.g4dn.xlarge
+      DomainName: !Ref AWS::StackName
+      SubnetIds:
+        - Fn::ImportValue: !Join [':', [!Ref Application, SubnetA]]
+        - Fn::ImportValue: !Join [':', [!Ref Application, SubnetB]]
+        - Fn::ImportValue: !Join [':', [!Ref Application, SubnetC]]
+      TagPropagation: ENABLED
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+      VpcId: {Fn::ImportValue: !Join [':', [!Ref Application, Vpc]]}
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  ExecutionRolePolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: UserExecution
+      RoleName: !Ref ExecutionRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - s3:DeleteObject
+              - s3:GetObject
+              - s3:PutObject
+            Effect: Allow
+            Resource: !Sub arn:aws:s3:::${Bucket}/*
+          - Action:
+              - s3:ListBucket
+            Effect: Allow
+            Resource: !GetAtt Bucket.Arn
+          - Action:
+              - sagemaker:CreatePresignedDomainUrl
+              - sagemaker:DescribeUserProfile
+            Effect: Allow
+            Resource: !GetAtt UserProfile.UserProfileArn
+          - Action:
+            - sagemaker:AddTags
+            - sagemaker:CreateApp
+            - sagemaker:DeleteApp
+            - sagemaker:DescribeApp
+            Effect: Allow
+            Resource:
+              - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:app/${Domain}/${UserProfileName}/*/*
+              - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:app/${Domain}/${UserProfileName}-code-editor/*/*
+              - !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:app/${Domain}/${UserProfileName}-jupyter-lab/*/*
+          - Action:
+              - sagemaker:DescribeDomain
+            Effect: Allow
+            Resource: !GetAtt Domain.DomainArn
+          - Action:
+            - sagemaker:DescribeSpace
+            - sagemaker:UpdateSpace
+            Effect: Allow
+            Resource:
+              - !GetAtt CodeEditorSpace.SpaceArn
+              - !GetAtt JupyterLabSpace.SpaceArn
+          - Action:
+            - sagemaker:ListApps
+            - sagemaker:ListSpaces
+            Effect: Allow
+            Resource: '*'
+
+  JupyterLabSpace:
+    Type: AWS::SageMaker::Space
+    DependsOn:
+      - UserProfile
+    Properties:
+      DomainId: !Ref Domain
+      OwnershipSettings:
+        OwnerUserProfileName: !Ref UserProfileName
+      SpaceName: !Sub ${UserProfileName}-jupyter-lab
+      SpaceSettings:
+        AppType: JupyterLab
+      SpaceSharingSettings:
+        SharingType: Private
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+
+  UserProfile:
+    Type: AWS::SageMaker::UserProfile
+    Properties:
+      DomainId: !Ref Domain
+      Tags:
+        - Key: application
+          Value: !Ref Application
+        - Key: stack
+          Value: !Ref AWS::StackName
+      UserProfileName: !Ref UserProfileName
+      UserSettings:
+        ExecutionRole: !GetAtt ExecutionRole.Arn
