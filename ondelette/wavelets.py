@@ -1,10 +1,10 @@
 from collections.abc import Callable
 import tensorflow as tf
+from typing import TypeAlias
 
+Wavelet: TypeAlias = Callable[[tf.DType], tf.Tensor]
 
-def biorthogonal(
-    low_pass: list[float], high_pass: list[float]
-) -> Callable[[tf.DType], tf.Tensor]:
+def biorthogonal(low_pass: list[float], high_pass: list[float]) -> Wavelet:
     def new(dtype: tf.DType) -> tf.Tensor:
         low_pass_tf = tf.constant(low_pass, dtype)
         high_pass_tf = tf.constant(high_pass, dtype)
@@ -13,7 +13,33 @@ def biorthogonal(
     return new
 
 
-def orthogonal(low_pass: list[float]) -> Callable[[tf.DType], tf.Tensor]:
+def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
+    """Compute the discrete wavelet transform.
+
+    samples shape: "NWC" (batches, samples, 1)
+    filters shape: (width, 1, 2)
+    output shape:  (batches, 2, coefficients)
+    """
+
+    wavelet_width = filters.shape[0]
+
+    # Temporary: this allows us to check against pywt.
+    padding = "SAME" if wavelet_width % 2 else "VALID"
+
+    dec_conv = tf.nn.conv1d(samples, filters, 2, padding)
+    return tf.transpose(dec_conv, [0, 2, 1])
+
+
+def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
+    """Convert wavelet coefficients to convolution filters for the discrete wavelet transform.
+
+    Input shape: (width, 2)
+    Output shape: (width, 1, 2)
+    """
+    return tf.expand_dims(wavelet, 1)
+
+
+def orthogonal(low_pass: list[float]) -> Wavelet:
     """Declare an orthogonal wavelet.
 
     Given an orthogonal wavelet with:
