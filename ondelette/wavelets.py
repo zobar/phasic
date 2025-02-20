@@ -1,8 +1,9 @@
 from collections.abc import Callable
 import tensorflow as tf
-from typing import TypeAlias
+from typing import Optional, TypeAlias
 
 Wavelet: TypeAlias = Callable[[tf.DType], tf.Tensor]
+
 
 def biorthogonal(low_pass: list[float], high_pass: list[float]) -> Wavelet:
     def new(dtype: tf.DType) -> tf.Tensor:
@@ -13,21 +14,28 @@ def biorthogonal(low_pass: list[float], high_pass: list[float]) -> Wavelet:
     return new
 
 
-def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
+def dwt(wavelet: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     """Compute the discrete wavelet transform.
 
-    samples shape: "NWC" (batches, samples, 1)
-    filters shape: (width, 1, 2)
-    output shape:  (batches, 2, coefficients)
+    wavelet dimensions:
+        - filter width
+        - channels (= 2, approximation then detail)
+    samples dimensions:
+        - batches
+        - samples
+    output dimensions:
+        - batches
+        - output channels (= 2, approximation then detail)
+        - output coefficients
     """
 
-    wavelet_width = filters.shape[0]
-
-    # Temporary: this allows us to check against pywt.
-    padding = "SAME" if wavelet_width % 2 else "VALID"
-
-    dec_conv = tf.nn.conv1d(samples, filters, 2, padding)
-    return tf.transpose(dec_conv, [0, 2, 1])
+    filters = dwt_filters(wavelet)
+    padding = wavelet.shape[0] - 2
+    odd = samples.shape[0] % 2
+    padded = tf.pad(samples, [[0, 0], [padding, padding + odd]])
+    channels = tf.expand_dims(padded, 2)
+    dec = tf.nn.conv1d(channels, filters, stride=2, padding="VALID")
+    return tf.transpose(dec, [0, 2, 1])
 
 
 def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
@@ -37,6 +45,45 @@ def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
     Output shape: (width, 1, 2)
     """
     return tf.expand_dims(wavelet, 1)
+
+
+def idwt(wavelet: tf.Tensor, coefficients: tf.Tensor) -> tf.Tensor:
+    """Compute the inverse discrete wavelet transform.
+
+    wavelet dimensions:
+        - filter width
+        - channels (=2, approximation then detail)
+    coefficients dimensions:
+        - batches
+        - channels (=2, approximation then detail)
+        - coefficients
+    result dimensions:
+        - batches
+        - coefficients
+    """
+    filters = idwt_filters(wavelet)
+    channels = tf.transpose(coefficients, [0, 2, 1])
+    rec = tf.nn.conv1d(channels, filters, stride=1, padding="VALID")
+    return tf.reshape(rec, [rec.shape[0], -1])
+
+
+def idwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
+    """Convert wavelet coefficients to convolution filters for the inverse discrete wavelet transform.
+
+    Input dimensions:
+        - wavelet width
+        - output channels (=2, approximation then detail)
+    Output dimensions:
+        - wavelet width
+        - input channels (=1)
+        - output channels (=2, approximation then detail)
+    """
+    pairs = tf.reshape(wavelet, [-1, 2, 2])
+    sign_flipped_pairs = pairs * tf.constant(
+        [-1, 1, 1, -1], dtype=wavelet.dtype, shape=[1, 2, 2]
+    )
+    reversed = tf.reverse(sign_flipped_pairs, [1, 2])
+    return tf.transpose(reversed, [0, 2, 1])
 
 
 def orthogonal(low_pass: list[float]) -> Wavelet:
