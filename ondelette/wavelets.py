@@ -24,18 +24,21 @@ def dwt(wavelet: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
         - batches
         - samples
     output dimensions:
-        - batches
         - output channels (= 2, approximation then detail)
+        - batches
         - output coefficients
     """
 
-    filters = dwt_filters(wavelet)
+    # Explicit padding to keep things under control.
+    # When both ends are padded by (wavelet_width - 2), the idwt will be equal to the input.
     padding = wavelet.shape[0] - 2
     odd = samples.shape[0] % 2
     padded = tf.pad(samples, [[0, 0], [padding, padding + odd]])
     channels = tf.expand_dims(padded, 2)
+
+    filters = dwt_filters(wavelet)
     dec = tf.nn.conv1d(channels, filters, stride=2, padding="VALID")
-    return tf.transpose(dec, [0, 2, 1])
+    return tf.transpose(dec, [2, 0, 1])
 
 
 def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
@@ -47,22 +50,24 @@ def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
     return tf.expand_dims(wavelet, 1)
 
 
-def idwt(wavelet: tf.Tensor, coefficients: tf.Tensor) -> tf.Tensor:
+def idwt(wavelet: tf.Tensor, approximations: tf.Tensor, details: tf.Tensor) -> tf.Tensor:
     """Compute the inverse discrete wavelet transform.
 
     wavelet dimensions:
         - filter width
         - channels (=2, approximation then detail)
-    coefficients dimensions:
+    approximations & details dimensions:
         - batches
-        - channels (=2, approximation then detail)
         - coefficients
     result dimensions:
         - batches
         - coefficients
     """
-    filters = idwt_filters(wavelet)
+    coefficients = tf.stack([approximations, details], axis=1)
     channels = tf.transpose(coefficients, [0, 2, 1])
+
+    filters = idwt_filters(wavelet)
+
     rec = tf.nn.conv1d(channels, filters, stride=1, padding="VALID")
     return tf.reshape(rec, [rec.shape[0], -1])
 
