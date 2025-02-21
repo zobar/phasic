@@ -13,13 +13,16 @@ def biorthogonal(low_pass: list[float], high_pass: list[float]) -> Wavelet:
 
     return new
 
+def by_name(name: str, dtype: tf.DType) -> tf.Tensor:
+    return all[name](dtype)
 
-def dwt(wavelet: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
+def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     """Compute the discrete wavelet transform.
 
-    wavelet dimensions:
+    filters dimensions:
         - filter width
-        - channels (= 2, approximation then detail)
+        - input channels (=1)
+        - output channels (=2, approximation then detail)
     samples dimensions:
         - batches
         - samples
@@ -31,12 +34,11 @@ def dwt(wavelet: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
 
     # Explicit padding to keep things under control.
     # When both ends are padded by (wavelet_width - 2), the idwt will be equal to the input.
-    padding = wavelet.shape[0] - 2
+    padding = filters.shape[0] - 2
     odd = samples.shape[0] % 2
     padded = tf.pad(samples, [[0, 0], [padding, padding + odd]])
     channels = tf.expand_dims(padded, 2)
 
-    filters = dwt_filters(wavelet)
     dec = tf.nn.conv1d(channels, filters, stride=2, padding="VALID")
     return tf.transpose(dec, [2, 0, 1])
 
@@ -111,6 +113,22 @@ def orthogonal(low_pass: list[float]) -> Wavelet:
 
     return new
 
+def wavedec(wavelet, levels, signal):
+    filters = dwt_filters(wavelet)
+    def dec(levels, signal):
+        approximation, detail = dwt(filters, signal)
+        if levels <= 2:
+            return [approximation, detail]
+        else:
+            result = dec(levels - 1, approximation)
+            full_width = result[-1].shape[1] * 2
+            width = detail.shape[1]
+            left_padding = (full_width - width) // 2
+            right_padding = full_width - width - left_padding
+            padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
+            result.append(padded)
+            return result
+    return dec(levels, signal)
 
 # Accurate up to float64. Adding digits does not improve precision. Source:
 # https://github.com/PyWavelets/pywt/blob/main/pywt/_extensions/c/wavelets_coeffs.template.h
