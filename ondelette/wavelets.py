@@ -2,6 +2,10 @@ from collections.abc import Callable
 import tensorflow as tf
 from typing import Optional, TypeAlias
 
+import numpy as np
+
+rng = np.random.default_rng()
+
 Wavelet: TypeAlias = Callable[[tf.DType], tf.Tensor]
 
 
@@ -13,8 +17,10 @@ def biorthogonal(low_pass: list[float], high_pass: list[float]) -> Wavelet:
 
     return new
 
+
 def by_name(name: str, dtype: tf.DType) -> tf.Tensor:
     return all[name](dtype)
+
 
 def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     """Compute the discrete wavelet transform.
@@ -52,11 +58,14 @@ def dwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
     return tf.expand_dims(wavelet, 1)
 
 
-def idwt(wavelet: tf.Tensor, approximations: tf.Tensor, details: tf.Tensor) -> tf.Tensor:
+def idwt(
+    filters: tf.Tensor, approximations: tf.Tensor, details: tf.Tensor
+) -> tf.Tensor:
     """Compute the inverse discrete wavelet transform.
 
-    wavelet dimensions:
+    filters dimensions:
         - filter width
+        - input channels (=2, approximation then detail)
         - channels (=2, approximation then detail)
     approximations & details dimensions:
         - batches
@@ -67,8 +76,6 @@ def idwt(wavelet: tf.Tensor, approximations: tf.Tensor, details: tf.Tensor) -> t
     """
     coefficients = tf.stack([approximations, details], axis=1)
     channels = tf.transpose(coefficients, [0, 2, 1])
-
-    filters = idwt_filters(wavelet)
 
     rec = tf.nn.conv1d(channels, filters, stride=1, padding="VALID")
     return tf.reshape(rec, [rec.shape[0], -1])
@@ -113,10 +120,23 @@ def orthogonal(low_pass: list[float]) -> Wavelet:
 
     return new
 
-def wavedec(wavelet, levels, signal):
-    filters = dwt_filters(wavelet)
+
+def random_pad(tensor, left_padding, right_padding):
+    min = tf.reduce_min(tensor)
+    max = tf.reduce_max(tensor)
+    scale = max = min
+    left_np = rng.random([2, left_padding]) * scale - min
+    left = tf.constant(left_np, dtype=tensor.dtype)
+    right_np = rng.random([2, right_padding]) * scale - min
+    right = tf.constant(right_np, dtype=tensor.dtype)
+    return tf.concat([left, tensor, right], axis=1)
+
+
+def wavedec(filters, levels, signal):
     def dec(levels, signal):
         approximation, detail = dwt(filters, signal)
+        print(f"approximation: {approximation.shape}")
+        print(approximation.numpy())
         if levels <= 2:
             return [approximation, detail]
         else:
@@ -125,10 +145,45 @@ def wavedec(wavelet, levels, signal):
             width = detail.shape[1]
             left_padding = (full_width - width) // 2
             right_padding = full_width - width - left_padding
-            padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
+            # Zeros are correct.
+            # padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
+            # But we pad with random noise to simulate editing in the wavelet domain.
+            padded = random_pad(detail, left_padding, right_padding)
             result.append(padded)
             return result
+
     return dec(levels, signal)
+
+
+def waverec(filters, coefficients):
+    wavelet_length = filters.shape[0]
+    extra = (wavelet_length - 2) // 2
+
+    def rec(coefficients):
+        levels = len(coefficients)
+        if levels == 1:
+            return levels[0]
+        elif levels == 2:
+            approximations, details = coefficients
+            return idwt(filters, approximations, details)
+        else:
+            details = coefficients[-1]
+            details_padding = extra * pow(2, levels - 3)
+            padded_details = tf.pad(
+                details, [[0, 0], [details_padding, details_padding]]
+            )
+            width = padded_details.shape[1]
+            approximations = rec(coefficients[:-1])
+            approximations_width = approximations.shape[1]
+            approximations_padding = (width - approximations_width) // 2
+            padded_approximations = tf.pad(
+                approximations,
+                [[0, 0], [approximations_padding, approximations_padding]],
+            )
+            return idwt(filters, padded_approximations, padded_details)
+
+    return rec(coefficients)
+
 
 # Accurate up to float64. Adding digits does not improve precision. Source:
 # https://github.com/PyWavelets/pywt/blob/main/pywt/_extensions/c/wavelets_coeffs.template.h
