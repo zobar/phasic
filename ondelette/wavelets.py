@@ -39,9 +39,9 @@ def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     """
 
     # Explicit padding to keep things under control.
-    # When both ends are padded by (wavelet_width - 2), the idwt will be equal to the input.
+    # When both ends are padded by (wavelet_width - 2), the idwt can perfectly reconstruct the input.
     padding = filters.shape[0] - 2
-    odd = samples.shape[0] % 2
+    odd = samples.shape[1] % 2
     padded = tf.pad(samples, [[0, 0], [padding, padding + odd]])
     channels = tf.expand_dims(padded, 2)
 
@@ -88,9 +88,9 @@ def idwt_filters(wavelet: tf.Tensor) -> tf.Tensor:
         - wavelet width
         - output channels (=2, approximation then detail)
     Output dimensions:
-        - wavelet width
-        - input channels (=1)
-        - output channels (=2, approximation then detail)
+        - half wavelet width
+        - input channels (=2, approximation then detail)
+        - output channels (=2, evens then odds)
     """
     pairs = tf.reshape(wavelet, [-1, 2, 2])
     sign_flipped_pairs = pairs * tf.constant(
@@ -132,57 +132,38 @@ def random_pad(tensor, left_padding, right_padding):
     return tf.concat([left, tensor, right], axis=1)
 
 
-def wavedec(filters, levels, signal):
-    def dec(levels, signal):
-        approximation, detail = dwt(filters, signal)
-        print(f"approximation: {approximation.shape}")
-        print(approximation.numpy())
-        if levels <= 2:
-            return [approximation, detail]
+def wavedec(filters, n, samples):
+    extra = filters.shape[0] - 2
+
+    def dec(n, samples):
+        transformed = dwt(filters, samples)
+        if n > 0:
+            approximation, detail = transformed
+            lower = dec(n - 1, approximation)
+            detail_width = detail.shape[1]
+            width = lower[-1].shape[1] * 2
+            left_padding = extra * ((2**n) - 1)
+            right_padding = width - detail_width - left_padding
+            print(f'Level {n}: {left_padding} + {detail_width} + {right_padding} = {width}')
+            padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
+            return lower + [padded]
         else:
-            result = dec(levels - 1, approximation)
-            full_width = result[-1].shape[1] * 2
-            width = detail.shape[1]
-            left_padding = (full_width - width) // 2
-            right_padding = full_width - width - left_padding
-            # Zeros are correct.
-            # padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
-            # But we pad with random noise to simulate editing in the wavelet domain.
-            padded = random_pad(detail, left_padding, right_padding)
-            result.append(padded)
-            return result
+            return list(transformed)
 
-    return dec(levels, signal)
+    return dec(n, samples)
 
-
-def waverec(filters, coefficients):
-    wavelet_length = filters.shape[0]
-    extra = (wavelet_length - 2) // 2
-
-    def rec(coefficients):
-        levels = len(coefficients)
-        if levels == 1:
-            return levels[0]
-        elif levels == 2:
-            approximations, details = coefficients
-            return idwt(filters, approximations, details)
+def waverec(filters, levels):
+    def rec(levels):
+        *lower, detail = levels
+        if lower:
+            approximation = rec(lower)
+            left_padding = detail.shape[1] - approximation.shape[1]
+            padded_approximation = tf.pad(approximation, [[0, 0], [left_padding, 0]])
+            return idwt(filters, padded_approximation, detail)
         else:
-            details = coefficients[-1]
-            details_padding = extra * pow(2, levels - 3)
-            padded_details = tf.pad(
-                details, [[0, 0], [details_padding, details_padding]]
-            )
-            width = padded_details.shape[1]
-            approximations = rec(coefficients[:-1])
-            approximations_width = approximations.shape[1]
-            approximations_padding = (width - approximations_width) // 2
-            padded_approximations = tf.pad(
-                approximations,
-                [[0, 0], [approximations_padding, approximations_padding]],
-            )
-            return idwt(filters, padded_approximations, padded_details)
+            return detail
 
-    return rec(coefficients)
+    return rec(levels)
 
 
 # Accurate up to float64. Adding digits does not improve precision. Source:

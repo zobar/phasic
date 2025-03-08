@@ -1,3 +1,5 @@
+/.conda
 /data
 .ipynb_checkpoints/
 __pycache__/
+/temp
