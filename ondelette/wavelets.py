@@ -132,7 +132,7 @@ def random_pad(tensor, left_padding, right_padding):
     return tf.concat([left, tensor, right], axis=1)
 
 
-def wavedec(filters, n, samples):
+def wavedec(filters, num_levels, samples):
     extra = filters.shape[0] - 2
 
     def dec(n, samples):
@@ -144,13 +144,12 @@ def wavedec(filters, n, samples):
             width = lower[-1].shape[1] * 2
             left_padding = extra * ((2**n) - 1)
             right_padding = width - detail_width - left_padding
-            print(f'Level {n}: {left_padding} + {detail_width} + {right_padding} = {width}')
             padded = tf.pad(detail, [[0, 0], [left_padding, right_padding]])
             return lower + [padded]
         else:
             return list(transformed)
 
-    return dec(n, samples)
+    return dec(num_levels - 2, samples)
 
 def waverec(filters, levels):
     def rec(levels):
