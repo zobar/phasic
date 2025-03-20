@@ -22,7 +22,7 @@ def by_name(name: str, dtype: tf.DType) -> tf.Tensor:
     return all[name](dtype)
 
 
-def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
+def dwt_same(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     """Compute the discrete wavelet transform.
 
     filters dimensions:
@@ -43,8 +43,11 @@ def dwt(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
     padding = filters.shape[0] - 2
     odd = samples.shape[1] % 2
     padded = tf.pad(samples, [[0, 0], [padding, padding + odd]])
-    channels = tf.expand_dims(padded, 2)
+    return dwt_valid(filters, padded)
 
+
+def dwt_valid(filters: tf.Tensor, samples: tf.Tensor) -> tf.Tensor:
+    channels = tf.expand_dims(samples, 2)
     dec = tf.nn.conv1d(channels, filters, stride=2, padding="VALID")
     return tf.transpose(dec, [2, 0, 1])
 
@@ -132,11 +135,11 @@ def random_pad(tensor, left_padding, right_padding):
     return tf.concat([left, tensor, right], axis=1)
 
 
-def wavedec(filters, num_levels, samples):
+def wavedec_same(filters, num_levels, samples):
     extra = filters.shape[0] - 2
 
     def dec(n, samples):
-        transformed = dwt(filters, samples)
+        transformed = dwt_same(filters, samples)
         if n > 0:
             approximation, detail = transformed
             lower = dec(n - 1, approximation)
@@ -151,16 +154,34 @@ def wavedec(filters, num_levels, samples):
 
     return dec(num_levels - 2, samples)
 
+# sounds ok but it seems to give more stereo separation than the source
+def wavedec_valid(filters, num_levels, samples):
+    def dec(n, samples):
+        transformed = dwt_valid(filters, samples)
+        if n > 0:
+            approximation, detail = transformed
+            lower = dec(n - 1, approximation)
+            detail_width = lower[-1].shape[1] * 2
+            cropped = detail[:, :detail_width]
+            return lower + [cropped]
+        else:
+            return list(transformed)
+
+    return dec(num_levels - 2, samples)
+
 def waverec(filters, levels):
     def rec(levels):
-        *lower, detail = levels
-        if lower:
+        count = len(levels)
+        if count == 1:
+            return levels[0]
+        elif count == 2:
+            return idwt(filters, levels[0], levels[1])
+        else:
+            *lower, detail = levels
             approximation = rec(lower)
-            left_padding = detail.shape[1] - approximation.shape[1]
+            left_padding = (filters.shape[0] - 1) * 2
             padded_approximation = tf.pad(approximation, [[0, 0], [left_padding, 0]])
             return idwt(filters, padded_approximation, detail)
-        else:
-            return detail
 
     return rec(levels)
 
