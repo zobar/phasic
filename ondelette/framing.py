@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 def frames_to_levels(frames):
     '''Flatten framed levels.
@@ -36,27 +37,31 @@ def levels_to_frames(levels):
         frames.append(framed)
     return frames
 
-def stretch_frame(factor, frame):
-    old_length = frame.shape[0]
-    indexes = tf.range(0, old_length * factor, dtype=tf.float32)
-    scaled = indexes / factor
-    int_indexes = tf.cast(scaled, dtype=tf.int32)
-    return tf.gather(frame, int_indexes)
+def stretch_linear(new_length, frames):
+    '''Time-stretch framed levels, using linear interpolation.
+    
+    To lengthen n times with precise alignment, new_length = (n * frame_length) + 1'''
 
-def stretch_frames(length, frames):
-    '''Time-stretch framed levels. There's no interpolation- this uses the previous neighbor.
+    dtype=frames[0].dtype
+    old_length = frames[0].shape[0]
+    x = tf.linspace(tf.constant(0, dtype=dtype), tf.constant(old_length, dtype=dtype), new_length)
 
-    Investigate using https://www.tensorflow.org/probability/api_docs/python/tfp/math/interp_regular_1d_grid instead.
-    '''
-    return [stretch_frame(length, l) for l in frames]
+    new_frames = []
+    for level in frames:
+        new = tfp.math.interp_regular_1d_grid(
+            x=x,
+            x_ref_min=0,
+            x_ref_max=old_length,
+            y_ref=level,
+            axis=0)
+        new_frames.append(new)
+    return new_frames
 
-# This transform sounds terrible.
-def stretch_level(factor, level):
-    old_length = level.shape[1]
-    indexes = tf.range(0, old_length * factor, dtype=tf.float32)
-    scaled = indexes / factor
-    int_indexes = tf.cast(scaled, dtype=tf.int32)
-    return tf.gather(level, int_indexes, axis=1)
-
-def stretch_levels(factor, levels):
-    return [stretch_level(factor, l) for l in levels]
+def stretch_neighbor(new_length, frames):
+    '''Time-stretch framed levels. No interpolation is performed- this uses the previous neighbor.
+    
+    To lengthen n times with precise alignment, new_length = (n * frame_length) - 1'''
+    old_length = frames[0].shape[0]
+    offsets = tf.linspace(tf.constant(0, dtype=tf.float32), tf.constant(old_length - 1, dtype=tf.float32), new_length)
+    indexes = tf.cast(offsets, dtype=tf.int32)
+    return [tf.gather(l, indexes) for l in frames]
