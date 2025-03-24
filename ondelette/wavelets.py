@@ -154,7 +154,6 @@ def wavedec_same(filters, num_levels, samples):
 
     return dec(num_levels - 2, samples)
 
-# sounds ok but it seems to give more stereo separation than the source
 def wavedec_valid(filters, num_levels, samples):
     def dec(n, samples):
         transformed = dwt_valid(filters, samples)
