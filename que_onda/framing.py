@@ -40,6 +40,10 @@ def levels_to_frames(levels):
     return frames
 
 
+def remix(frames, indexes):
+    return [tf.gather(l, indexes) for l in frames]
+
+
 def stretch_linear(new_length, frames):
     """Time-stretch framed levels, using linear interpolation.
 
