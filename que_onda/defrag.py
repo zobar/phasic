@@ -1,18 +1,20 @@
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 import tensorflow as tf
 
+# largest number representable exactly as both signed int32 and float32
+# (converting int32_max to float32 rounds up one, which causes overflow)
+scale = 2147483520
+
 
 def integer_distance_matrix(distances):
     max_distance = tf.reduce_max(distances)
-    factor = (
-        2147483520 / max_distance
-    )  # largest number representable exactly as both signed int32 and float32
+    factor = scale / max_distance
     scaled = distances * factor
     int_distances = tf.cast(scaled, tf.int32)
     return int_distances.numpy()
 
 
-def defrag(distances, time_limit=180):
+def defrag(distances, time_limit=180, log_search=False):
     int_distances = integer_distance_matrix(distances)
     manager = pywrapcp.RoutingIndexManager(int_distances.shape[0], 1, 0)
     routing = pywrapcp.RoutingModel(manager)
@@ -40,7 +42,7 @@ def defrag(distances, time_limit=180):
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    search_parameters.log_search = True
+    search_parameters.log_search = log_search
     search_parameters.time_limit.seconds = time_limit
 
     solution = routing.SolveWithParameters(search_parameters)

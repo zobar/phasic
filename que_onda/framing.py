@@ -7,14 +7,17 @@ def frames_to_levels(frames):
 
     Input dimensions:
         - frames
-        - batches
         - frame length
+        - audio channels
+    Output dimensions:
+        - audio channels
+        - length
     """
+    channel_count = frames[0].shape[2]
     levels = []
     for framed in frames:
-        shape = list(framed.shape)
-        new_shape = shape[1:-1] + [-1]
-        level = tf.reshape(framed, new_shape)
+        samples = tf.reshape(framed, [-1, channel_count])
+        level = tf.transpose(samples)
         levels.append(level)
     return levels
 
@@ -23,19 +26,18 @@ def levels_to_frames(levels):
     """Convert flat levels (where each level is a different length) to framed levels (where each level has the same number of frames).
 
     Input dimensions:
-        - batches
-        - level length
+        - audio channels
+        - length
     Output dimensions:
         - frames
-        - batches
         - frame length
+        - audio channels
     """
-    frame_count = levels[0].shape[1]
+    channel_count, frame_count = levels[0].shape
     frames = []
     for level in levels:
-        shape = list(level.shape)
-        new_shape = [frame_count] + shape[:-1] + [-1]
-        framed = tf.reshape(level, new_shape)
+        channels = tf.transpose(level)
+        framed = tf.reshape(channels, [frame_count, -1, channel_count])
         frames.append(framed)
     return frames
 
@@ -44,35 +46,34 @@ def remix(frames, indexes):
     return [tf.gather(l, indexes) for l in frames]
 
 
+def remix_linear(frames, offsets):
+    x_ref_max = frames[0].shape[0] - 1
+    new_frames = []
+    for framed in frames:
+        new_framed = tfp.math.interp_regular_1d_grid(
+            x=offsets, x_ref_min=0, x_ref_max=x_ref_max, y_ref=framed, axis=0
+        )
+        new_frames.append(new_framed)
+    return new_frames
+
+
 def stretch_linear(new_length, frames):
     """Time-stretch framed levels, using linear interpolation.
 
-    To lengthen n times with precise alignment, new_length = (n * frame_length) + 1"""
+    To lengthen n times with precise alignment, new_length = (n * frame_length) - 1"""
 
     dtype = frames[0].dtype
-    old_length = frames[0].shape[0]
-    x = tf.linspace(
-        tf.constant(0, dtype=dtype), tf.constant(old_length, dtype=dtype), new_length
+    x_ref_max = frames[0].shape[0] - 1
+    return tf.linspace(
+        start=tf.constant(0, dtype=dtype),
+        stop=tf.constant(x_ref_max, dtype=dtype),
+        num=new_length,
     )
-
-    new_frames = []
-    for level in frames:
-        new = tfp.math.interp_regular_1d_grid(
-            x=x, x_ref_min=0, x_ref_max=old_length, y_ref=level, axis=0
-        )
-        new_frames.append(new)
-    return new_frames
 
 
 def stretch_neighbor(new_length, frames):
     """Time-stretch framed levels. No interpolation is performed- this uses the previous neighbor.
 
     To lengthen n times with precise alignment, new_length = (n * frame_length) - 1"""
-    old_length = frames[0].shape[0]
-    offsets = tf.linspace(
-        tf.constant(0, dtype=tf.float32),
-        tf.constant(old_length - 1, dtype=tf.float32),
-        new_length,
-    )
-    indexes = tf.cast(offsets, dtype=tf.int32)
-    return [tf.gather(l, indexes) for l in frames]
+    offsets = stretch_linear(new_length, frames)
+    return tf.cast(offsets, dtype=tf.int32)

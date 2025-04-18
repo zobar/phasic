@@ -154,6 +154,7 @@ def wavedec_same(filters, num_levels, samples):
 
     return dec(num_levels - 2, samples)
 
+
 def wavedec_valid(filters, num_levels, samples):
     def dec(n, samples):
         transformed = dwt_valid(filters, samples)
@@ -168,7 +169,10 @@ def wavedec_valid(filters, num_levels, samples):
 
     return dec(num_levels - 2, samples)
 
+
 def waverec(filters, levels):
+    left_padding = (filters.shape[0] - 1) * 2
+
     def rec(levels):
         count = len(levels)
         if count == 1:
@@ -178,7 +182,6 @@ def waverec(filters, levels):
         else:
             *lower, detail = levels
             approximation = rec(lower)
-            left_padding = (filters.shape[0] - 1) * 2
             padded_approximation = tf.pad(approximation, [[0, 0], [left_padding, 0]])
             return idwt(filters, padded_approximation, detail)
 

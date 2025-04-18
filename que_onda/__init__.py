@@ -1,1 +1,1 @@
-__all__ = ["analysis", "defrag", "framing", "io", "wavelets"]
+__all__ = ["analysis", "beats", "defrag", "framing", "io", "wavelets"]
