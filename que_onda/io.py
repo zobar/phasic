@@ -1,7 +1,6 @@
 from samplerate import resample
 import soundfile as sf
 import tensorflow as tf
-import tensorflow_io as tfio
 
 vorbis_chunk_size = 128 * 1024
 
